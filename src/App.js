@@ -3,7 +3,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 import TodoListCard from './TodoListCard';
 
-const API_URL = 'http://localhost:5000/api/todos';
+const API_URL = 'https://todo-app-kwai.onrender.com';
 const LIST_COUNT = 20;
 
 // Helper to create initial state
