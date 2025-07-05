@@ -3,7 +3,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 import TodoListCard from './TodoListCard';
 
-const API_URL = 'https://todo-app-kwai.onrender.com';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 const LIST_COUNT = 20;
 
 // Helper to create initial state
@@ -24,7 +24,7 @@ function App() {
       const allLists = createInitialLists();
       for (let i = 0; i < LIST_COUNT; i++) {
         try {
-          const response = await fetch(`${API_URL}?user=list-${i}`);
+          const response = await fetch(`${API_URL}/todos?user=list-${i}`);
           const todos = await response.json();
           allLists[i].todos = todos;
         } catch (error) {
@@ -45,7 +45,7 @@ function App() {
   };
 
   const handleAddTodo = (listId, text) => {
-    fetch(API_URL, {
+    fetch(`${API_URL}/todos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, user: listId }),
