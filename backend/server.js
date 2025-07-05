@@ -1,16 +1,25 @@
-
 const express = require('express');
+const http = require('http');
+const { Server } = require("socket.io");
 const cors = require('cors');
 const fs = require('fs');
 
 const app = express();
-const port = 5000;
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allow all origins for simplicity
+    methods: ["GET", "POST"]
+  }
+});
+
+const port = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
 
 const DB_FILE = './db.json';
 
+// --- Database Functions ---
 const readDB = () => {
   if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify({ todos: [] }));
@@ -23,61 +32,56 @@ const writeDB = (data) => {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 };
 
-// Get todos for a specific user
-app.get('/api/todos', (req, res) => {
-  const { user } = req.query;
-  if (!user) {
-    return res.status(400).send('User query parameter is required');
-  }
-  const db = readDB();
-  const userTodos = db.todos.filter(todo => todo.user === user);
-  res.json(userTodos);
-});
+// --- Real-time Logic ---
+io.on('connection', (socket) => {
+  console.log('a user connected:', socket.id);
 
-// Add a new todo for a specific user
-app.post('/api/todos', (req, res) => {
-  const { text, user } = req.body;
-  if (!text || !user) {
-    return res.status(400).send('Text and user are required');
-  }
+  // Send all current todos to the newly connected client
   const db = readDB();
-  const newTodo = {
-    id: Date.now(),
-    text,
-    user,
-    completed: false,
-    completedAt: null,
-  };
-  db.todos.push(newTodo);
-  writeDB(db);
-  res.status(201).json(newTodo);
-});
+  socket.emit('todos_updated', db.todos);
 
-// Toggle a todo's completion status
-app.put('/api/todos/:id/toggle', (req, res) => {
-  const db = readDB();
-  const todoId = parseInt(req.params.id, 10);
-  const todo = db.todos.find(t => t.id === todoId);
-
-  if (todo) {
-    todo.completed = !todo.completed;
-    todo.completedAt = todo.completed ? new Date().toISOString() : null;
+  // Listen for a new todo from a client
+  socket.on('add_todo', (newTodoData) => {
+    const db = readDB();
+    const newTodo = {
+      id: Date.now(),
+      text: newTodoData.text,
+      user: newTodoData.user,
+      completed: false,
+      completedAt: null,
+    };
+    db.todos.push(newTodo);
     writeDB(db);
-    res.json(todo);
-  } else {
-    res.status(404).send('Todo not found');
-  }
+
+    // Broadcast the updated list to all clients
+    io.emit('todos_updated', db.todos);
+  });
+
+  // Listen for a todo toggle
+  socket.on('toggle_todo', (todoId) => {
+    const db = readDB();
+    const todo = db.todos.find(t => t.id === todoId);
+    if (todo) {
+      todo.completed = !todo.completed;
+      todo.completedAt = todo.completed ? new Date().toISOString() : null;
+      writeDB(db);
+      io.emit('todos_updated', db.todos);
+    }
+  });
+
+  // Listen for a todo deletion
+  socket.on('delete_todo', (todoId) => {
+    const db = readDB();
+    db.todos = db.todos.filter(t => t.id !== todoId);
+    writeDB(db);
+    io.emit('todos_updated', db.todos);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('user disconnected:', socket.id);
+  });
 });
 
-// Delete a todo
-app.delete('/api/todos/:id', (req, res) => {
-  const db = readDB();
-  const todoId = parseInt(req.params.id, 10);
-  db.todos = db.todos.filter(todo => todo.id !== todoId);
-  writeDB(db);
-  res.status(204).send();
-});
-
-app.listen(port, () => {
+server.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });

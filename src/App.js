@@ -1,4 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
+import io from 'socket.io-client';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 import TodoListCard from './TodoListCard';
@@ -6,11 +8,14 @@ import TodoListCard from './TodoListCard';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 const LIST_COUNT = 20;
 
+// Establish a single socket connection for the app
+const socket = io(API_URL);
+
 // Helper to create initial state
 const createInitialLists = () => {
   return Array.from({ length: LIST_COUNT }, (_, i) => ({
     id: `list-${i}`,
-    name: ``, // Initial name is empty
+    name: `List ${i + 1}`,
     todos: [],
   }));
 };
@@ -18,87 +23,50 @@ const createInitialLists = () => {
 function App() {
   const [lists, setLists] = useState(createInitialLists());
 
-  // Fetch all todos for all lists on initial load
   useEffect(() => {
-    const fetchAllTodos = async () => {
-      const allLists = createInitialLists();
-      for (let i = 0; i < LIST_COUNT; i++) {
-        try {
-          const response = await fetch(`${API_URL}/todos?user=list-${i}`);
-          const todos = await response.json();
-          allLists[i].todos = todos;
-        } catch (error) {
-          console.error(`Error fetching todos for list-${i}:`, error);
+    // Listen for updates from the server
+    socket.on('todos_updated', (allTodos) => {
+      const updatedLists = createInitialLists();
+      allTodos.forEach(todo => {
+        const list = updatedLists.find(l => l.id === todo.user);
+        if (list) {
+          list.todos.push(todo);
         }
-      }
-      setLists(allLists);
-    };
-    fetchAllTodos();
-  }, []);
+      });
+      setLists(updatedLists);
+    });
 
+    // Clean up the socket connection when the component unmounts
+    return () => {
+      socket.off('todos_updated');
+    };
+  }, []); // Empty dependency array ensures this runs only once
+
+  const handleAddTodo = (listId, text) => {
+    socket.emit('add_todo', { text, user: listId });
+  };
+
+  const handleToggleTodo = (listId, todoId) => {
+    // The listId is not strictly needed by the backend now, but we keep it for consistency
+    socket.emit('toggle_todo', todoId);
+  };
+
+  const handleDeleteTodo = (listId, todoId) => {
+    // The listId is not strictly needed by the backend now, but we keep it for consistency
+    socket.emit('delete_todo', todoId);
+  };
+
+  // This function is now local-only and doesn't need to interact with the backend
   const handleUpdateListName = (listId, newName) => {
-    // This is a local-only update for now, as we don't have a backend endpoint for it.
-    const updatedLists = lists.map(list => 
+    const updatedLists = lists.map(list =>
       list.id === listId ? { ...list, name: newName } : list
     );
     setLists(updatedLists);
   };
 
-  const handleAddTodo = (listId, text) => {
-    fetch(`${API_URL}/todos`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, user: listId }),
-    })
-      .then(res => res.json())
-      .then(newTodo => {
-        const updatedLists = lists.map(list =>
-          list.id === listId ? { ...list, todos: [...list.todos, newTodo] } : list
-        );
-        setLists(updatedLists);
-      })
-      .catch(error => console.error('Error adding todo:', error));
-  };
-
-  const handleToggleTodo = (listId, todoId) => {
-    fetch(`${API_URL}/${todoId}/toggle`, { method: 'PUT' })
-      .then(res => res.json())
-      .then(updatedTodo => {
-        const updatedLists = lists.map(list => {
-          if (list.id === listId) {
-            return {
-              ...list,
-              todos: list.todos.map(t => t.id === todoId ? updatedTodo : t),
-            };
-          }
-          return list;
-        });
-        setLists(updatedLists);
-      })
-      .catch(error => console.error('Error toggling todo:', error));
-  };
-
-  const handleDeleteTodo = (listId, todoId) => {
-    fetch(`${API_URL}/${todoId}`, { method: 'DELETE' })
-      .then(res => {
-        if (res.ok) {
-          const updatedLists = lists.map(list => {
-            if (list.id === listId) {
-              return { ...list, todos: list.todos.filter(t => t.id !== todoId) };
-            }
-            return list;
-          });
-          setLists(updatedLists);
-        } else {
-          throw new Error('Failed to delete todo');
-        }
-      })
-      .catch(error => console.error('Error deleting todo:', error));
-  };
-
   return (
     <div className="container-fluid mt-4">
-      <h1 className="text-center mb-4">Multi-List TODO Board</h1>
+      <h1 className="text-center mb-4">Real-Time Multi-List TODO Board</h1>
       <div className="todo-board">
         {lists.map(list => (
           <TodoListCard
